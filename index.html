@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Отметка посещаемости</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<style>
+  body {
+    margin: 0;
+    padding: 10px;
+    font-family: Arial, sans-serif;
+    background-color: #f7f7f7;
+  }
+  h2 {
+    color: #333;
+    margin-bottom: 10px;
+  }
+  label {
+    font-size: 20px;
+    font-weight: bold;
+  }
+  input[type="date"] {
+    font-size: 20px;
+    padding: 8px;
+    margin: 10px 0 20px 0;
+    width: 100%;
+    max-width: 250px;
+  }
+  button {
+    font-size: 22px;
+    padding: 12px 24px;
+    margin: 20px 0;
+    cursor: pointer;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    transition: 0.2s;
+  }
+  button:hover {
+    background-color: #45a049;
+  }
+  #table-container {
+    width: 100%;
+    max-height: 80vh; /* таблица занимает до 80% высоты экрана */
+    overflow-y: auto;  /* вертикальная прокрутка */
+    overflow-x: hidden; /* горизонтальная прокрутка запрещена */
+  }
+  table {
+    border-collapse: collapse;
+    background-color: white;
+    width: 100%;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 6px 8px;
+    box-sizing: border-box;
+  }
+  th {
+    background-color: #f0f0f0;
+    font-size: 18px;
+    text-align: center;
+  }
+  td.num {
+    width: 30px;
+    text-align: center;
+    font-weight: bold;
+  }
+  td.name {
+    text-align: left;
+    font-size: 16px;
+    white-space: normal; /* перенос длинных фамилий */
+    word-break: break-word;
+  }
+  td.checkbox {
+    width: 100px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .date-header {
+    font-size: 26px;
+    font-weight: bold;
+    text-align: left;
+    padding: 8px 12px;
+    background-color: #fdfdfd;
+  }
+  .symbol {
+    font-size: 32px;
+    font-weight: bold;
+    display: block;
+    margin-top: 5px;
+  }
+  .label-text {
+    display: block;
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 5px;
+  }
+  .top-checkbox {
+    margin-left: 5px;
+    transform: scale(1.5);
+  }
+</style>
+</head>
+<body>
+
+<h2>Отметка посещаемости</h2>
+
+<label>Дата:</label>
+<input type="date" id="date">
+
+<div id="table-container">
+  <table id="attendance-table">
+    <tr>
+      <th>#</th>
+      <th>Имя</th>
+      <th>
+        <span class="label-text">БЫЛ</span>
+        <input type="checkbox" id="allCheck" class="top-checkbox">
+      </th>
+    </tr>
+  </table>
+</div>
+
+<button onclick="sendScreenshot()">Сохранить и отправить</button>
+<p id="result"></p>
+
+<script>
+const studentNames = [
+  "ABDIXOLIQOVA MUXLISA ZOKIR QIZI",
+  "ABDUG‘AFFOROV ABDULAZIZ SHUXRAT O‘G‘LI",
+  "ABDUKARIMOVA GUZAL ABAYEVNA",
+  "ABDULLAEV BEKZOD HAMID UǴLI",
+  "ABDUVAXOBOVA DINORA TURSUNOVNA",
+  "AHMEDOVA JASMINA SHUHRAT QIZI",
+  "GIZATULLIN RUSTAM DAVRONOVICH",
+  "ISMOILOV SHOXRUH JALOL O‘G‘LI",
+  "IZBASKANOVA NURJAMAL RASULOVNA",
+  "KOMILJONOV UBAYDULLOH ZIYODULLA O‘G‘LI",
+  "MAMADALIYEV MUHAMMADYUSUF MUROD O‘G‘LI",
+  "MUHAMMADJONOV NURISLOMBEK VOHIDJON O‘G‘LI",
+  "MUXAMMADALIYEVA SHAHZODA JAXONGIR QIZI",
+  "MUZAFFAROVA AFRUZA BAXROMOVNA",
+  "NAZRULLAYEVA SHAHZODAXON SHERZOD QIZI",
+  "NE’MATOV HUSAN BOZOR O‘G‘LI",
+  "OQILXONOV ZAFAR ODILXON O‘G‘LI",
+  "RAHMONOV BOBURMIRZO BAHROM O‘G‘LI",
+  "SALOXIDINOV XUSRAVXON SADRIDINXON O‘G‘LI",
+  "SATTOROV ABDULAZIZ ABDUJABBOR O‘G‘LI",
+  "SAYFIDDINOV MUHAMMADSOLIH MANSUROVICH",
+  "SHODMONOVA MUNISA ALISHER QIZI",
+  "SOBITJONOVA KAMILA SARVAR QIZI",
+  "TO‘LQINOV ULUG‘BEK BAXROM O‘G‘LI",
+  "TOXIRJONOV OLIMJON UMIDJON O‘G‘LI",
+  "TURSUNALIYEVA MUXSINAXON TO‘LQINJON QIZI",
+  "XAMIDULLAYEV TEMURBEK BOTIR O‘G‘LI",
+  "XUSNIDDINOV OLIMJON BAXODIR O‘G‘LI",
+  "ABDUBOSITOVA RUXSHONA",
+  "ABDUSALIMOV FAXRIDDIN"
+];
+
+const table = document.getElementById("attendance-table");
+
+// создаём строки студентов с чекбоксами
+studentNames.forEach((name,i)=>{
+  const row = table.insertRow();
+  const cellNum = row.insertCell();
+  const cellName = row.insertCell();
+  const cellCheck = row.insertCell();
+
+  cellNum.className = "num";
+  cellName.className = "name";
+  cellCheck.className = "checkbox";
+
+  cellNum.innerText = i + 1;
+  cellName.innerText = name;
+  cellCheck.innerHTML = `<input type="checkbox" class="studentCheck" id="s${i}">`;
+});
+
+// верхний чекбокс "Все были"
+const allCheck = document.getElementById("allCheck");
+function updateAllCheck() {
+  const allStudentChecks = document.querySelectorAll('.studentCheck');
+  allCheck.checked = Array.from(allStudentChecks).every(ch => ch.checked);
+}
+allCheck.addEventListener('change', ()=>{
+  const allStudentChecks = document.querySelectorAll('.studentCheck');
+  allStudentChecks.forEach(cb => cb.checked = allCheck.checked);
+});
+
+// синхронизация индивидуальных чекбоксов
+function attachStudentListeners() {
+  const studentChecks = document.querySelectorAll('.studentCheck');
+  studentChecks.forEach(cb => {
+    cb.addEventListener('change', updateAllCheck);
+  });
+}
+attachStudentListeners();
+
+// Telegram
+const BOT_TOKEN = "8518775921:AAF_euOsd2mjpwP3ltxjEDS1wJZlt5aGfAU";
+const CHAT_ID = "6610925597";
+
+async function sendScreenshot(){
+  const date = document.getElementById("date").value;
+  if(!date) return alert("Выбери дату!");
+
+  // добавляем дату сверху
+  const dateRow = table.insertRow(0);
+  const dateCell = dateRow.insertCell(0);
+  dateCell.colSpan = 3;
+  dateCell.innerText = `Дата: ${date}`;
+  dateCell.className = "date-header";
+
+  // сохраняем состояния чекбоксов студентов
+  const studentChecks = document.querySelectorAll('.studentCheck');
+  const checkboxStates = Array.from(studentChecks).map(cb => cb.checked);
+
+  // заменяем чекбоксы на + и -
+  studentChecks.forEach((cb)=>{
+    cb.parentElement.innerHTML = cb.checked ? '<span class="symbol" style="color:green;">+</span>' :
+                                            '<span class="symbol" style="color:red;">-</span>';
+  });
+
+  // скрываем верхний чекбокс
+  allCheck.style.display = 'none';
+
+  // генерируем скриншот
+  const container = document.getElementById("table-container");
+  const canvas = await html2canvas(container);
+  canvas.toBlob(async function(blob){
+    const formData = new FormData();
+    formData.append("chat_id", CHAT_ID);
+    formData.append("photo", blob, "attendance.png");
+
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+      method: "POST",
+      body: formData
+    });
+
+    document.getElementById("result").innerText = "Скриншот отправлен в Telegram!";
+  });
+
+  // восстанавливаем чекбоксы студентов
+  studentChecks.forEach((cb,i)=>{
+    cb.parentElement.innerHTML = `<input type="checkbox" class="studentCheck" id="s${i}" ${checkboxStates[i] ? 'checked':''}>`;
+  });
+
+  // восстанавливаем верхний чекбокс
+  allCheck.style.display = '';
+  updateAllCheck();
+
+  // удаляем строку с датой после скрина
+  table.deleteRow(0);
+
+  // заново привязываем обработчики к чекбоксам студентов
+  attachStudentListeners();
+}
+</script>
+</body>
+</html>
