@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Отметка посещаемости — защищённая уравнениями версия</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<script>
+/*
+  Пароль требуется каждые 6 часов.
+*/
+
+(async function(){
+  const JSON_NAME = "cfg_a4678301.json"; // <- имя файла с уравнениями
+  const STORAGE_KEY = "access_granted_eq_v1";
+  const STORAGE_TIME = "access_time_eq_v1";
+  const X_MIN = -1000, X_MAX = 1000;
+  const HOURS_LIMIT = 6; // каждые 6 часов
+
+  const lastAccess = parseInt(localStorage.getItem(STORAGE_TIME) || "0", 10);
+  const now = Date.now();
+  const hoursPassed = (now - lastAccess) / (1000 * 60 * 60);
+
+  // если прошло меньше 6 часов — не спрашиваем пароль
+  if (localStorage.getItem(STORAGE_KEY) === "true" && hoursPassed < HOURS_LIMIT) return;
+
+  // иначе сбрасываем и требуем пароль снова
+  localStorage.removeItem(STORAGE_KEY);
+
+  // ---------------- Загружаем JSON ----------------
+  let exprs = null;
+  try {
+    const r = await fetch(JSON_NAME, {cache: "no-store"});
+    if (!r.ok) throw new Error("JSON не найден");
+    const j = await r.json();
+    if (!j.exprs || !Array.isArray(j.exprs) || j.exprs.length === 0) throw new Error("Неверный формат JSON");
+    exprs = j.exprs;
+  } catch (e) {
+    console.error(e);
+    document.body.innerHTML = "<h2>Доступ закрыт — файл с уравнениями не найден или некорректен.</h2>";
+    return;
+  }
+
+  // ---------------- Решение уравнений ----------------
+  function safeEval(expr) {
+    try {
+      return Function('"use strict"; return (' + expr + ');')();
+    } catch {
+      return NaN;
+    }
+  }
+
+  function solveForX(equation) {
+    const parts = equation.split('=');
+    if (parts.length !== 2) return null;
+    const L = parts[0], R = parts[1];
+    for (let xv = X_MIN; xv <= X_MAX; xv++) {
+      const lv = safeEval(L.replace(/x/gi, `(${xv})`));
+      const rv = safeEval(R.replace(/x/gi, `(${xv})`));
+      if (Number.isFinite(lv) && Number.isFinite(rv) && Math.abs(lv - rv) < 1e-9) {
+        return xv;
+      }
+    }
+    return null;
+  }
+
+  const numbers = [];
+  for (const e of exprs) {
+    const s = String(e).trim();
+    if (s.includes('=')) {
+      const xval = solveForX(s);
+      if (xval === null) {
+        console.error("Не удалось решить уравнение:", s);
+        document.body.innerHTML = "<h2>Доступ закрыт — не удалось решить уравнение.</h2>";
+        return;
+      }
+      numbers.push(xval);
+    } else {
+      const v = safeEval(s);
+      if (!Number.isFinite(v)) {
+        console.error("Ошибка выражения:", s);
+        document.body.innerHTML = "<h2>Доступ закрыт — неверное выражение.</h2>";
+        return;
+      }
+      numbers.push(Math.trunc(v));
+    }
+  }
+
+  let secret = "";
+  for (const n of numbers) {
+    secret += String.fromCharCode(Math.max(0, Math.min(65535, n)));
+  }
+
+  // ---------------- Окно ввода пароля ----------------
+  function showPrompt() {
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.left = 0;
+    overlay.style.top = 0;
+    overlay.style.right = 0;
+    overlay.style.bottom = 0;
+    overlay.style.background = "rgba(0,0,0,0.6)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = 99999;
+
+    const box = document.createElement("div");
+    box.style.background = "#fff";
+    box.style.padding = "22px";
+    box.style.borderRadius = "8px";
+    box.style.maxWidth = "420px";
+    box.style.width = "90%";
+    box.style.boxShadow = "0 6px 24px rgba(0,0,0,0.3)";
+    box.innerHTML = `
+      <h3 style="margin-top:0;">Вход — введите пароль</h3>
+      <input id="eq-pass" type="password" style="width:100%; padding:10px; font-size:16px;" autofocus />
+      <div style="margin-top:12px; text-align:right;">
+        <button id="eq-ok" style="padding:8px 12px; margin-right:8px;">Войти</button>
+        <button id="eq-cancel" style="padding:8px 12px;">Закрыть</button>
+      </div>
+      <p id="eq-err" style="color:red; display:none; margin-top:8px;"></p>
+      <p style="font-size:12px; color:#666; margin-top:6px;">Пароль может знать только лидер группы</p>
+    `;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const inp = box.querySelector("#eq-pass");
+    const ok = box.querySelector("#eq-ok");
+    const cancel = box.querySelector("#eq-cancel");
+    const err = box.querySelector("#eq-err");
+
+    ok.onclick = () => {
+      if (inp.value === secret) {
+        localStorage.setItem(STORAGE_KEY, "true");
+        localStorage.setItem(STORAGE_TIME, String(Date.now()));
+        document.body.removeChild(overlay);
+      } else {
+        err.style.display = "block";
+        err.textContent = "Неверный пароль";
+      }
+    };
+    cancel.onclick = () => {
+      document.body.innerHTML = "<h2>Доступ закрыт.</h2>";
+    };
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") ok.click();
+    });
+  }
+
+  showPrompt();
+})();
+</script>
+
+<style>
+  body { margin:0; padding:10px; font-family: Arial, sans-serif; background:#f7f7f7; }
+  h2 { color:#333; margin-bottom:10px; }
+  label { font-size:20px; font-weight:bold; }
+  input[type="date"] { font-size:20px; padding:8px; margin:10px 0 20px 0; width:100%; max-width:250px; }
+  button { font-size:22px; padding:12px 24px; margin:20px 0; cursor:pointer; background:#4CAF50; color:#fff; border:none; border-radius:6px; transition:.2s; }
+  button:hover { background:#45a049; }
+  #table-container { width:100%; max-height:80vh; overflow-y:auto; overflow-x:hidden; }
+  table { border-collapse:collapse; background:#fff; width:100%; }
+  th, td { border:1px solid #ccc; padding:6px 8px; box-sizing:border-box; }
+  th { background:#f0f0f0; font-size:18px; text-align:center; }
+  td.num { width:50px; text-align:center; font-weight:bold; }
+  td.name { text-align:left; font-size:16px; word-break:break-word; }
+  td.checkbox { width:100px; text-align:center; vertical-align:middle; }
+  .date-header { font-size:26px; font-weight:bold; text-align:left; padding:8px 12px; background:#fdfdfd; }
+  .symbol { font-size:32px; font-weight:bold; display:block; margin-top:5px; }
+  .label-text { display:block; font-size:18px; font-weight:bold; margin-bottom:5px; }
+  .top-checkbox { margin-left:5px; transform:scale(1.5); }
+  #result { margin-top:10px; font-weight:bold; color:#222; }
+</style>
+</head>
+
+<body>
+<h2>Отметка посещаемости</h2>
+<label>Дата:</label>
+<input type="date" id="date">
+<div id="table-container">
+  <table id="attendance-table">
+    <tr>
+      <th>#</th>
+      <th>Имя</th>
+      <th>
+        <span class="label-text">БЫЛ</span>
+        <input type="checkbox" id="allCheck" class="top-checkbox">
+      </th>
+    </tr>
+  </table>
+</div>
+<button id="saveBtn">Сохранить и отправить</button>
+<p id="result"></p>
+
+<script>
+const studentNames = [
+  "ABDIXOLIQOVA MUXLISA ZOKIR QIZI",
+  "ABDUG‘AFFOROV ABDULAZIZ SHUXRAT O‘G‘LI",
+  "ABDUKARIMOVA GUZAL ABAYEVNA",
+  "ABDULLAEV BEKZOD HAMID UǴLI",
+  "ABDUVAXOBOVA DINORA TURSUNOVNA",
+  "AHMEDOVA JASMINA SHUHRAT QIZI",
+  "GIZATULLIN RUSTAM DAVRONOVICH",
+  "ISMOILOV SHOXRUH JALOL O‘G‘LI",
+  "IZBASKANOVA NURJAMAL RASULOVNA",
+  "KOMILJONOV UBAYDULLOH ZIYODULLA O‘G‘LI",
+  "MAMADALIYEV MUHAMMADYUSUF MUROD O‘G‘LI",
+  "MUHAMMADJONOV NURISLOMBEK VOHIDJON O‘G‘LI",
+  "MUXAMMADALIYEVA SHAHZODA JAXONGIR QIZI",
+  "MUZAFFAROVA AFRUZA BAXROMOVNA",
+  "NAZRULLAYEVA SHAHZODAXON SHERZOD QIZI",
+  "NE’MATOV HUSAN BOZOR O‘G‘LI",
+  "OQILXONOV ZAFAR ODILXON O‘G‘LI",
+  "RAHMONOV BOBURMIRZO BAHROM O‘G‘LI",
+  "SALOXIDINOV XUSRAVXON SADRIDINXON O‘G‘LI",
+  "SATTOROV ABDULAZIZ ABDUJABBOR O‘G‘LI",
+  "SAYFIDDINOV MUHAMMADSOLIH MANSUROVICH",
+  "SHODMONOVA MUNISA ALISHER QIZI",
+  "SOBITJONOVA KAMILA SARVAR QIZI",
+  "TO‘LQINOV ULUG‘BEK BAXROM O‘G‘LI",
+  "TOXIRJONOV OLIMJON UMIDJON O‘G‘LI",
+  "TURSUNALIYEVA MUXSINAXON TO‘LQINJON QIZI",
+  "XAMIDULLAYEV TEMURBEK BOTIR O‘G‘LI",
+  "XUSNIDDINOV OLIMJON BAXODIR O‘G‘LI",
+  "ABDUBOSITOVA RUXSHONA",
+  "ABDUSALIMOV FAXRIDDIN"
+];
+
+const table = document.getElementById("attendance-table");
+studentNames.forEach((name, i) => {
+  const row = table.insertRow();
+  const num = row.insertCell();
+  const n = row.insertCell();
+  const chk = row.insertCell();
+  num.className = "num";
+  n.className = "name";
+  chk.className = "checkbox";
+  num.textContent = i + 1;
+  n.textContent = name;
+  chk.innerHTML = `<input type="checkbox" class="studentCheck" id="s${i}">`;
+});
+
+const allCheck = document.getElementById("allCheck");
+function updateAllCheck() {
+  const all = document.querySelectorAll(".studentCheck");
+  allCheck.checked = Array.from(all).every(cb => cb.checked);
+}
+allCheck.addEventListener("change", () => {
+  document.querySelectorAll(".studentCheck").forEach(cb => cb.checked = allCheck.checked);
+});
+document.querySelectorAll(".studentCheck").forEach(cb => cb.addEventListener("change", updateAllCheck));
+
+// Telegram
+const BOT_TOKEN = "8518775921:AAF_euOsd2mjpwP3ltxjEDS1wJZlt5aGfAU";
+const CHAT_ID = "6610925597";
+
+async function sendScreenshotClone() {
+  const dateVal = document.getElementById("date").value;
+  if (!dateVal) { alert("Выбери дату!"); return; }
+
+  const checks = Array.from(document.querySelectorAll(".studentCheck")).map(cb => cb.checked);
+  const orig = document.getElementById("attendance-table");
+  const clone = orig.cloneNode(true);
+
+  const inputs = clone.querySelectorAll("input.studentCheck");
+  inputs.forEach((input, i) => {
+    const parent = input.parentElement;
+    parent.innerHTML = checks[i]
+      ? '<span class="symbol" style="color:green;">+</span>'
+      : '<span class="symbol" style="color:red;">-</span>';
+  });
+  const all = clone.querySelector("#allCheck");
+  if (all) all.remove();
+
+  const dateRow = clone.insertRow(0);
+  const dateCell = dateRow.insertCell(0);
+  dateCell.colSpan = 3;
+  dateCell.className = "date-header";
+  dateCell.textContent = `Дата: ${dateVal}`;
+
+  const wrap = document.createElement("div");
+  wrap.id = "clone-screenshot-wrapper";
+  wrap.style.position = "absolute";
+  wrap.style.left = "0";
+  wrap.style.top = "0";
+  wrap.style.background = "#fff";
+  wrap.style.padding = "30px";
+  wrap.style.zIndex = "9999";
+  wrap.style.width = Math.max(1600, orig.scrollWidth || 1400) + "px";
+  wrap.style.visibility = "visible";
+  wrap.style.fontFamily = "Arial, sans-serif";
+
+  const bigStyle = document.createElement("style");
+  bigStyle.textContent = `
+    #clone-screenshot-wrapper table { width:100%; border-collapse:collapse; }
+    #clone-screenshot-wrapper th, #clone-screenshot-wrapper td {
+      border:2px solid #000;
+      padding:20px;
+      font-size:36px;
+      text-align:center;
+      line-height:1.3;
+    }
+    #clone-screenshot-wrapper .name {
+      font-size:34px;
+      text-align:left;
+      font-weight:bold;
+    }
+    #clone-screenshot-wrapper .num {
+      width:80px;
+      font-size:38px;
+      font-weight:bold;
+    }
+    #clone-screenshot-wrapper .symbol {
+      font-size:42px;
+      font-weight:bold;
+    }
+    #clone-screenshot-wrapper .date-header {
+      font-size:44px;
+      text-align:center;
+      background:#f9f9f9;
+      padding:20px;
+      border:3px solid #000;
+    }
+  `;
+  wrap.appendChild(bigStyle);
+
+  wrap.appendChild(clone);
+  document.body.appendChild(wrap);
+
+  await new Promise(r => setTimeout(r, 300));
+
+  try {
+    const canvas = await html2canvas(wrap, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+    const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+    const formData = new FormData();
+    formData.append("chat_id", CHAT_ID);
+    formData.append("photo", blob, "attendance.png");
+
+    const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+      method: "POST",
+      body: formData
+    });
+
+    document.getElementById("result").innerText = resp.ok ? "✅ Скриншот успешно отправлен!" : "Ошибка отправки в Telegram.";
+  } catch (e) {
+    console.error("Ошибка скриншота:", e);
+    alert("Ошибка при создании скриншота");
+  } finally {
+    wrap.remove();
+  }
+}
+
+document.getElementById("saveBtn").addEventListener("click", sendScreenshotClone);
+</script>
+</body>
+</html>
